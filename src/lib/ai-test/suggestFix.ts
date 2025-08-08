@@ -6,8 +6,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 export async function suggestFix(
   functionCode: string,
   functionName: string,
-  testOutput: string
-): Promise<string> {
+  testOutput: string): Promise<string> {
   const prompt = `You are an expert TypeScript developer.
 
 Function name: "${functionName}"
@@ -16,8 +15,7 @@ Code:
 ${functionCode}
 \`\`\`
 
-Test failure:
-\`\`\`
+Test failure:\`\`\`
 ${testOutput}
 \`\`\`
 
@@ -28,8 +26,7 @@ Give concise fix suggestions.`;
   });
 
   const res = await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
-    {
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -40,5 +37,4 @@ Give concise fix suggestions.`;
   );
   if (!res.ok) throw new Error(`Gemini Error (${res.status}): ${await res.text()}`);
   const json = (await res.json()) as any;
-  return json.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No suggestions.';
-}
+  return json.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No suggestions.';}

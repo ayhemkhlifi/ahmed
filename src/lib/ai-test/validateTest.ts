@@ -1,40 +1,53 @@
 import { spawn } from 'child_process';
 import path from 'path';
-import { TSC, JEST } from './paths';
 
 export interface TestResult {
   success: boolean;
   output: string;
   error?: string;
+  summary?: string;
+  cleanError?: string;
 }
 
 export async function validateTest(testPath: string): Promise<TestResult> {
   return new Promise((resolve) => {
-    const root = process.cwd();
-
-    // 1. Type-check
-    const tsc = spawn(
-      process.platform === 'win32' ? 'node' : TSC,
-      [process.platform === 'win32' ? TSC : '', '--noEmit', testPath].filter(Boolean),
-      { cwd: root, shell: process.platform === 'win32' }
-    );
-    let tscErr = '';
-    tsc.stderr?.on('data', (d) => (tscErr += d));
-    tsc.on('close', (code) => {
-      if (code !== 0) {
-        return resolve({ success: false, output: '', error: `tsc: ${tscErr}` });
-      }
-
-      // 2. Run Jest
-      const jest = spawn(
-        process.platform === 'win32' ? 'node' : JEST,
-        [process.platform === 'win32' ? JEST : '', path.basename(testPath), '--colors'].filter(Boolean),
-        { cwd: root, shell: process.platform === 'win32' }
-      );
-      let out = '';
-      jest.stdout.on('data', (d) => (out += d));
-      jest.stderr.on('data', (d) => (out += d));
-      jest.on('close', (c) => resolve({ success: c === 0, output: out }));
+    const jest = spawn('npx', ['jest', path.basename(testPath), '--colors=no'], {
+      cwd: path.dirname(testPath),
+      shell: true,
+    });
+    
+    let output = '';
+    
+    jest.stdout.on('data', (data) => (output += data.toString()));
+    jest.stderr.on('data', (data) => (output += data.toString()));
+    
+    jest.on('close', (code) => {
+      const { summary, cleanError } = parseJestOutput(output);
+      resolve({ 
+        success: code === 0,
+        output: output,
+        summary,
+        cleanError,
+      });
     });
   });
+}
+
+function parseJestOutput(rawOutput: string): { summary: string; cleanError?: string } {
+  // Extract the summary
+  const summaryMatch = rawOutput.match(
+    /Test Suites:.+\nTests:.+\nSnapshots:.+\nTime:.+\nRan all test suites/
+  );
+  const summary = summaryMatch ? summaryMatch[0] : 'Test summary not available';
+
+  // Extract and clean the error message
+  const errorMatch = rawOutput.match(/SyntaxError:.+?\n\s+at/m);
+  let cleanError = errorMatch 
+    ? errorMatch[0]
+      .replace(/\s+at.*/g, '') // Remove stack trace
+      .replace(/\n\s+/g, '\n') // Clean up indentation
+      .trim()
+    : undefined;
+
+  return { summary, cleanError };
 }

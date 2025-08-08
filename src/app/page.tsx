@@ -1,94 +1,218 @@
 'use client';
-import { useState } from 'react';
+
+import { useState, useEffect, useRef } from 'react';
 
 export default function HomePage() {
+  const [code, setCode] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{
-    ok: boolean;
-    testCode?: string;
-    output?: string;
-    error?: string;
-    fix?: string;
-  } | null>(null);
-  const [runOutput, setRunOutput] = useState('');
+  const [result, setResult] = useState<any>(null);
+  const [typedText, setTypedText] = useState('');
+  const [dark, setDark] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
-  const runTest = async (fnName: string) => {
-    const res = await fetch('/api/run-test', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileName: fnName }),
-    });
-    const json = await res.json();
-    setRunOutput(json.output);
+  const typeText = async (text: string) => {
+    setIsTyping(true);
+    setTypedText('');
+    
+    for (let i = 0; i < text.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * 10 + 10));
+      setTypedText((prev) => prev + text[i]);
+      
+      if (resultsRef.current && i % 10 === 0) {
+        resultsRef.current.scrollTop = resultsRef.current.scrollHeight;
+      }
+    }
+    
+    setIsTyping(false);
   };
 
   const handleSubmit = async () => {
-    if (!file) return;
-    setLoading(true);
-    setResult(null);
-    setRunOutput('');
+    const text = file ? await file.text() : code;
+    if (!text.trim()) return;
 
     const body = new FormData();
-    body.append('file', file);
-    const res = await fetch('/api/generate-tests', { method: 'POST', body });
-    const json = await res.json();
-    setResult(json);
-    if (json.testCode) {
-      const m = await file.text();
-      const name = m.match(/(?:export\s+)?(?:function|const|let|var)\s+([a-zA-Z0-9_]+)/)?.[1] || 'unknown';
-      runTest(name);
+    body.append('file', new File([text], 'upload.ts'));
+
+    setLoading(true);
+    setTypedText('');
+    setResult(null);
+
+    try {
+      const res = await fetch('/api/generate-tests', { method: 'POST', body });
+      const json = await res.json();
+      setResult(json);
+
+      if (json.testCode) {
+        await typeText(json.testCode);
+      }
+    } catch (error) {
+      setResult({ 
+        ok: false, 
+        error: 'Failed to generate tests. Please try again.',
+        output: 'Could not complete test execution'
+      });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  return (
-    <main className="p-8 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">AI Unit-Test Generator</h1>
+  const toggleDark = () => setDark(!dark);
+  const theme = dark ? 'dark' : 'light';
 
-      <input
-        type="file"
-        accept=".ts"
-        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className="block mb-4"
-      />
-      <button
-        onClick={handleSubmit}
-        disabled={!file || loading}
-        className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
+  useEffect(() => {
+    if (result && resultsRef.current) {
+      resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [result]);
+
+  return (
+    <main className={`${theme} bg-gray-100 dark:bg-gray-900 min-h-screen p-4 sm:p-8 flex flex-col items-center font-sans transition-colors duration-300`}>
+      <button 
+        onClick={toggleDark} 
+        className="absolute top-4 right-4 px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-sm hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
       >
-        {loading ? 'Running…' : 'Generate & Test'}
+        {dark ? '💡 Light' : '🌙 Dark'}
       </button>
 
-      {result && (
-        <section className="mt-8">
-          {result.ok ? (
+      <div className="w-full max-w-3xl space-y-6">
+        <h1 className="text-3xl font-bold text-center text-gray-800 dark:text-gray-100">
+          AI Unit-Test Generator
+        </h1>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 text-gray-700 dark:text-gray-300">
+            Paste TypeScript function
+          </label>
+          <textarea
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="function add(a:number,b:number){return a+b}"
+            className="w-full h-40 p-3 border rounded-lg resize-none bg-white dark:bg-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-colors"
+          />
+        </div>
+
+        <div className="flex items-center text-gray-500 dark:text-gray-400">
+          <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
+          <span className="px-2 text-sm">OR</span>
+          <div className="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
+        </div>
+
+        <input
+          type="file"
+          accept=".ts"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
+          className="block w-full text-sm text-gray-700 dark:text-gray-200 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-blue-900 file:text-blue-700 dark:file:text-blue-200 hover:file:bg-blue-100 dark:hover:file:bg-blue-800 transition-colors"
+        />
+
+        <button
+          onClick={handleSubmit}
+          disabled={loading || isTyping || (!code && !file)}
+          className="w-full py-3 px-6 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {loading ? 'Generating…' : isTyping ? 'Displaying results…' : 'Generate & Test'}
+        </button>
+
+        {(loading || isTyping) && (
+          <div className="flex justify-center items-center mt-4 space-x-2">
+            <div className="w-6 h-6 border-4 border-blue-300 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-gray-600 dark:text-gray-300">
+              {loading ? 'Generating tests...' : 'Displaying results...'}
+            </span>
+          </div>
+        )}
+
+        <div ref={resultsRef} className="space-y-4">
+          {result && (
             <>
-              <h2 className="font-bold mb-2">✅ All tests passed</h2>
-              <pre className="bg-slate-800 text-slate-100 p-4 text-sm rounded max-h-96 overflow-auto">
-                {result.testCode}
-              </pre>
-            </>
-          ) : (
-            <>
-              <h2 className="font-bold mb-2">❌ Tests failed (3 attempts)</h2>
-              <pre className="bg-red-100 text-red-900 p-4 text-sm rounded">
-                {result.output || result.error}
-              </pre>
-              <h3 className="font-bold mt-4 mb-2">💡 AI Suggestions</h3>
-              <pre className="bg-yellow-100 text-yellow-900 p-4 text-sm rounded">
-                {result.fix}
-              </pre>
+              {result.ok ? (
+                <>
+                  <h2 className="text-xl font-bold text-green-600 dark:text-green-400">
+                    ✅ Tests passed
+                  </h2>
+                  <div className="relative">
+                    <pre className="bg-gray-800 text-green-300 p-4 rounded-lg text-sm overflow-auto whitespace-pre-wrap font-mono max-h-96">
+                      {typedText}
+                      {(isTyping || loading) && (
+                        <span className="ml-1 inline-block w-2 h-5 bg-green-400 animate-pulse"></span>
+                      )}
+                    </pre>
+                    {!isTyping && (
+                      <button 
+                        onClick={() => navigator.clipboard.writeText(typedText)}
+                        className="absolute top-2 right-2 p-1 bg-gray-700 rounded text-xs text-white hover:bg-gray-600 transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        📋
+                      </button>
+                    )}
+                  </div>
+                  {!isTyping && result.jestOutput && (
+                    <details className="mt-4">
+                      <summary className="cursor-pointer font-semibold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
+                        Jest Output
+                      </summary>
+                      <pre className="mt-2 bg-gray-900 text-gray-200 p-3 rounded text-xs overflow-auto max-h-64">
+                        {result.jestOutput}
+                      </pre>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2 className="text-xl font-bold text-red-600 dark:text-red-400">
+                    ❌ Tests failed
+                  </h2>
+                  
+                  {/* Clean Error Display */}
+                  {result.error && (
+                    <div className="bg-red-50 dark:bg-red-900/50 p-4 rounded-lg border border-red-200 dark:border-red-800">
+                      <h3 className="font-semibold text-red-800 dark:text-red-200 mb-2">
+                        Error Details
+                      </h3>
+                      <div className="text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap font-mono">
+                        {result.error.includes('SyntaxError') ? (
+                          <>
+                            <p className="font-bold">{result.error.split('\n')[0]}</p>
+                            {result.error.split('\n').slice(1).map((line: string, i: number) => (
+                              <p key={i} className="text-xs opacity-80">{line}</p>
+                            ))}
+                          </>
+                        ) : (
+                          result.error
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Test Summary */}
+                  <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <h3 className="font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                      Test Summary
+                    </h3>
+                    <pre className="text-sm text-gray-700 dark:text-gray-300 font-mono">
+                      {result.output || 'No summary available'}
+                    </pre>
+                  </div>
+                  
+                  {/* AI Suggestions */}
+                  {result.fix && (
+                    <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                      <h3 className="font-semibold text-yellow-800 dark:text-yellow-200">
+                        💡 AI Suggestions
+                      </h3>
+                      <div className="text-sm text-yellow-700 dark:text-yellow-300 whitespace-pre-wrap mt-2">
+                        {result.fix}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </>
           )}
-        </section>
-      )}
-
-      {runOutput && (
-        <pre className="bg-black text-green-400 p-4 text-xs rounded max-h-64 overflow-auto mt-4">
-          {runOutput}
-        </pre>
-      )}
+        </div>
+      </div>
     </main>
   );
 }

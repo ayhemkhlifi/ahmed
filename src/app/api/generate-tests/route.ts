@@ -18,37 +18,40 @@ export async function POST(req: NextRequest) {
     if (!m) return NextResponse.json({ ok: false, error: 'No function name' }, { status: 400 });
     const fnName = m[1];
 
-    let testCode = '';
-    let result: Awaited<ReturnType<typeof validateTest>> = {
-      success: false,
-      output: '',
-      error: '',
-    };
+    let finalTestCode = '';
+    let result: Awaited<ReturnType<typeof validateTest>> = { success: false, output: '', error: '' };
+    let jestOutput = '';
 
-    // 3-attempt loop: generate → syntax check → compile → jest
+    // 3-attempt loop
     for (let i = 1; i <= 3; i++) {
-      let raw = await generateTest(code, fnName, i);
+      const raw = await generateTest(code, fnName, i);
       const cleaned = raw.match(/```(?:typescript|ts)?\s*([\s\S]*?)```/)?.[1]?.trim() || raw.trim();
-      const ok = await syntaxOK(cleaned);
-      if (!ok) continue; // syntax failed → retry
 
       const testPath = await writeTestFile(cleaned, fnName);
+      const ok = await syntaxOK(cleaned);
+      if (!ok) continue;
+
       result = await validateTest(testPath);
+      
+      // Capture Jest output even if tests fail
+      jestOutput = result.output;
+      
       if (result.success) {
-        testCode = cleaned;
+        finalTestCode = cleaned;
         break;
       }
     }
 
-    const fix = result.success ? undefined : await suggestFix(code, fnName, result.error || result.output);
+    const fix = result.success ? undefined : await suggestFix(code, fnName, result.cleanError || result.output);
     return NextResponse.json({
       ok: result.success,
-      testCode,
-      output: result.output,
-      error: result.error,
+      testCode: finalTestCode,
+      output: result.summary,  // Use the cleaned summary
+      error: result.cleanError,  // Use the cleaned error
       fix,
+      jestOutput: result.output  // Keep raw output for debugging
     });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message });
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
 }

@@ -5,12 +5,15 @@ import { useState, useEffect, useRef } from "react";
 export default function HomePage() {
   const [code, setCode] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [explanation, setExplanation] = useState(""); // NEW: Function explanation
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [typedText, setTypedText] = useState("");
   const [dark, setDark] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [model, setModel] = useState("gemini"); // Default to Gemini
+  const [model, setModel] = useState("gemini");
+  const [abortController, setAbortController] = useState<AbortController | null>(null); // NEW: For stopping requests
+  const [streamingStatus, setStreamingStatus] = useState(""); // NEW: Status updates during streaming
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const models = [
@@ -37,6 +40,22 @@ export default function HomePage() {
     setIsTyping(false);
   };
 
+  // NEW: Stop the current process
+  const handleStop = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+    }
+    setLoading(false);
+    setIsTyping(false);
+    setStreamingStatus("");
+    setResult({
+      ok: false,
+      error: "Process stopped by user",
+      output: "Generation was cancelled"
+    });
+  };
+
   const handleSubmit = async () => {
     const hasCode = code.trim().length > 0;
     const hasFile = file !== null;
@@ -46,8 +65,13 @@ export default function HomePage() {
       return;
     }
 
+    // Create new abort controller
+    const controller = new AbortController();
+    setAbortController(controller);
+
     const body = new FormData();
-    body.append("model", model); // Add selected model
+    body.append("model", model);
+    body.append("explanation", explanation.trim()); // NEW: Add explanation to request
 
     if (hasCode) body.append("code", code);
     if (hasFile) body.append("file", file);
@@ -55,23 +79,64 @@ export default function HomePage() {
     setLoading(true);
     setTypedText("");
     setResult(null);
+    setStreamingStatus("Initializing test generation...");
 
     try {
-      const res = await fetch("/api/generate-tests", { method: "POST", body });
+      // NEW: Simulate streaming status updates
+      const statusUpdates = [
+        "Analyzing function code...",
+        "Understanding function behavior...",
+        "Generating test scenarios...",
+        "Creating test cases...",
+        "Validating test syntax...",
+        "Running generated tests...",
+        "Finalizing results..."
+      ];
+
+      let statusIndex = 0;
+      const statusInterval = setInterval(() => {
+        if (statusIndex < statusUpdates.length - 1) {
+          statusIndex++;
+          setStreamingStatus(statusUpdates[statusIndex]);
+        }
+      }, 2000);
+
+      const res = await fetch("/api/generate-tests", { 
+        method: "POST", 
+        body,
+        signal: controller.signal // NEW: Add abort signal
+      });
+      
+      clearInterval(statusInterval);
+      
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
+      }
+
       const json = await res.json();
       setResult(json);
 
       if (json.testCode) {
+        setStreamingStatus("Displaying generated tests...");
         await typeText(json.testCode);
       }
-    } catch (error) {
+      
+      setStreamingStatus("");
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        // Request was aborted - result already set in handleStop
+        return;
+      }
+      
       setResult({
         ok: false,
         error: "Failed to generate tests. Please try again.",
         output: "Could not complete test execution",
       });
+      setStreamingStatus("");
     } finally {
       setLoading(false);
+      setAbortController(null);
     }
   };
 
@@ -96,6 +161,7 @@ export default function HomePage() {
   }, [result]);
 
   const canSubmit = !loading && !isTyping && (code.trim() || file);
+  const canStop = loading || isTyping;
 
   return (
     <main
@@ -121,7 +187,8 @@ export default function HomePage() {
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className="w-full p-2 border rounded-lg bg-white dark:bg-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500"
+            disabled={loading}
+            className="w-full p-2 border rounded-lg bg-white dark:bg-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           >
             {models.map((m) => (
               <option key={m.id} value={m.id}>
@@ -146,6 +213,7 @@ export default function HomePage() {
               <textarea
                 value={code}
                 onChange={handleCodeChange}
+                disabled={loading}
                 placeholder="function factorial(n: number): number {
   if (n < 0) throw new Error('Negative not allowed');
   let result = 1;
@@ -154,7 +222,7 @@ export default function HomePage() {
   }
   return result;
 }"
-                className="w-full h-40 p-3 border rounded-lg resize-none bg-white dark:bg-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-colors font-mono text-sm"
+                className="w-full h-40 p-3 border rounded-lg resize-none bg-white dark:bg-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-colors font-mono text-sm disabled:opacity-50"
               />
               {code.trim() && (
                 <p className="mt-1 text-xs text-green-600 dark:text-green-400">
@@ -177,11 +245,13 @@ export default function HomePage() {
                 type="file"
                 accept=".ts,.tsx,.js,.jsx"
                 onChange={handleFileChange}
+                disabled={loading}
                 className="block w-full text-sm text-gray-700 dark:text-gray-200 
                           file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 
                           file:text-sm file:font-semibold file:bg-blue-50 dark:file:bg-blue-900 
                           file:text-blue-700 dark:file:text-blue-200 
-                          hover:file:bg-blue-100 dark:hover:file:bg-blue-800 transition-colors"
+                          hover:file:bg-blue-100 dark:hover:file:bg-blue-800 transition-colors
+                          disabled:opacity-50"
               />
               {file && (
                 <p className="mt-1 text-xs text-green-600 dark:text-green-400">
@@ -190,6 +260,30 @@ export default function HomePage() {
               )}
             </div>
           </div>
+        </div>
+
+        {/* NEW: Function Explanation Section */}
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
+          <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            Function Explanation (Optional but Recommended)
+          </label>
+          <textarea
+            value={explanation}
+            onChange={(e) => setExplanation(e.target.value)}
+            disabled={loading}
+            placeholder="Explain what your function does, its purpose, expected behavior, and any special requirements. For example:
+
+'This function calculates the factorial of a positive integer. It should return 1 for input 0, throw an error for negative numbers, and handle edge cases properly. The function is used in mathematical calculations where factorial computation is needed.'"
+            className="w-full h-32 p-3 border rounded-lg resize-none bg-white dark:bg-gray-800 dark:text-gray-100 border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 transition-colors text-sm disabled:opacity-50"
+          />
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            💡 Providing an explanation helps the AI generate more accurate and comprehensive tests
+          </p>
+          {explanation.trim() && (
+            <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+              ✓ Explanation provided ({explanation.trim().length} characters)
+            </p>
+          )}
         </div>
 
         {code.trim() && file && (
@@ -201,19 +295,34 @@ export default function HomePage() {
           </div>
         )}
 
-        <button
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className="w-full py-3 px-6 bg-blue-600 text-white font-semibold rounded-lg 
-                     hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed 
-                     transition-colors"
-        >
-          {loading
-            ? "Generating Tests…"
-            : isTyping
-            ? "Displaying Results…"
-            : "Generate & Test"}
-        </button>
+        {/* Action Buttons */}
+        <div className="flex gap-3">
+          <button
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+            className="flex-1 py-3 px-6 bg-blue-600 text-white font-semibold rounded-lg 
+                       hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed 
+                       transition-colors"
+          >
+            {loading
+              ? "Generating Tests…"
+              : isTyping
+              ? "Displaying Results…"
+              : "Generate & Test"}
+          </button>
+          
+          {/* NEW: Stop Button */}
+          {canStop && (
+            <button
+              onClick={handleStop}
+              className="py-3 px-6 bg-red-600 text-white font-semibold rounded-lg 
+                         hover:bg-red-700 transition-colors flex items-center gap-2"
+            >
+              <span className="w-4 h-4 border-2 border-white rounded-sm"></span>
+              Stop
+            </button>
+          )}
+        </div>
 
         {!canSubmit && !loading && !isTyping && (
           <p className="text-center text-sm text-gray-500 dark:text-gray-400">
@@ -221,11 +330,12 @@ export default function HomePage() {
           </p>
         )}
 
+        {/* NEW: Streaming Status */}
         {(loading || isTyping) && (
           <div className="flex justify-center items-center mt-4 space-x-2">
             <div className="w-6 h-6 border-4 border-blue-300 border-t-transparent rounded-full animate-spin"></div>
             <span className="text-gray-600 dark:text-gray-300">
-              {loading ? "Generating tests..." : "Displaying results..."}
+              {streamingStatus || (loading ? "Generating tests..." : "Displaying results...")}
             </span>
           </div>
         )}

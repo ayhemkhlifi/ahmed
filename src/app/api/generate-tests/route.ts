@@ -19,8 +19,10 @@ export async function POST(req: NextRequest) {
     let code = '';
     const pastedCode = form.get('code') as string | null;
     const file = form.get('file') as File | null;
-    // NEW: Get selected model
+    // Get selected model
     const model = form.get('model') as string | null || 'gemini'; // Default to Gemini
+    // NEW: Get function explanation
+    const explanation = form.get('explanation') as string | null || '';
     
     if (pastedCode && pastedCode.trim()) {
       code = pastedCode.trim();
@@ -53,7 +55,8 @@ export async function POST(req: NextRequest) {
     
     fnName = functionMatch[1];
     console.log(`🔍 Found function: ${fnName}`);
-    console.log(`🤖 Selected model: ${model}`); // Log selected model
+    console.log(`🤖 Selected model: ${model}`);
+    console.log(`📋 Function explanation provided: ${explanation ? 'Yes (' + explanation.length + ' chars)' : 'No'}`);
 
     // Step 1: Write the source file FIRST and keep it during testing
     const sourcePath = await writeSourceFile(code, fnName);
@@ -68,8 +71,8 @@ export async function POST(req: NextRequest) {
       console.log(`🔄 Attempt ${attempt}/3 - Generating tests...`);
       
       try {
-        // Generate test code that imports the function - pass model parameter
-        const rawTestCode = await generateTest(code, fnName, attempt, model);
+        // Generate test code that imports the function - pass model and explanation parameters
+        const rawTestCode = await generateTest(code, fnName, attempt, model, explanation);
         const cleanedTestCode = rawTestCode.match(/```(?:typescript|ts)?\s*([\s\S]*?)```/)?.[1]?.trim() || rawTestCode.trim();
 
         // Write the test file
@@ -104,7 +107,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Step 3: Generate fix suggestions if all attempts failed - pass model parameter
+    // Step 3: Generate fix suggestions if all attempts failed - pass model and explanation parameters
     let fixSuggestions = undefined;
     if (!result.success) {
       console.log('🔧 Generating fix suggestions...');
@@ -113,7 +116,8 @@ export async function POST(req: NextRequest) {
           code, 
           fnName, 
           result.cleanError || result.error || result.output,
-          model // Pass model to suggestFix
+          model, // Pass model to suggestFix
+          explanation // NEW: Pass explanation to suggestFix
         );
       } catch (fixError) {
         console.warn('Could not generate fix suggestions:', fixError);
@@ -125,7 +129,8 @@ export async function POST(req: NextRequest) {
       success: result.success,
       hasTestCode: !!finalTestCode,
       hasOutput: !!result.output,
-      hasError: !!result.error
+      hasError: !!result.error,
+      hasExplanation: !!explanation
     });
 
     // Return the results
@@ -136,7 +141,8 @@ export async function POST(req: NextRequest) {
       error: result.cleanError || result.error,
       fix: fixSuggestions,
       jestOutput: jestOutput,
-      modelUsed: model // Return which model was used
+      modelUsed: model, // Return which model was used
+      explanationUsed: !!explanation // NEW: Indicate if explanation was provided
     });
 
   } catch (error: any) {

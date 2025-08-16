@@ -9,31 +9,41 @@ export async function generateTest(
   functionCode: string,
   functionName: string,
   attempt: number,
-  modelProvider: string
+  modelProvider: string,
+  explanation?: string // NEW: Optional explanation parameter
 ): Promise<string> {
   const returnTypeMatch = functionCode.match(
     /:\s*(\w+(?:\[\])?|\{[^}]*\}|string|number|boolean|void|any)/,
   );
   const returnType = returnTypeMatch?.[1] ?? 'unknown';
 
+  // NEW: Build enhanced prompt with explanation
+  const explanationSection = explanation?.trim() 
+    ? `\n\nFUNCTION EXPLANATION PROVIDED BY USER:
+"${explanation.trim()}"
+
+Use this explanation to better understand the function's intended behavior, edge cases, and expected functionality when writing tests.`
+    : '';
+
   const prompt = `You are a professional javascript test engineer. Generate a Jest test file that imports and tests a function.
 
 STRICT REQUIREMENTS:
 1. Import the function: import { ${functionName} } from '../generated-functions/${functionName}';
-2. Write exactly 3 comprehensive tests:
+2. Write exactly 4 comprehensive tests:
    - Normal/typical use case with realistic inputs
    - Edge case (boundary conditions like 0, empty arrays, etc.)
    - Error case (invalid input that should throw)
-   - Case where has a probability of failing
+   - Complex scenario that has a probability of failing
 3. Use descriptive test names that explain what is being tested
 4. NO function implementation in the test file - only import and tests
 5. Clean, professional TypeScript syntax
 6. Expected return type: ${returnType}
+7. Consider the function explanation when designing test cases
 
 FUNCTION TO TEST:
 \`\`\`typescript
 ${functionCode}
-\`\`\`
+\`\`\`${explanationSection}
 
 EXAMPLE FORMAT (adapt for your specific function):
 \`\`\`typescript
@@ -51,6 +61,10 @@ describe('${functionName}', () => {
   it('should throw error for invalid input', () => {
     expect(() => ${functionName}(/* invalid input */)).toThrow();
   });
+
+  it('should handle complex scenario correctly', () => {
+    expect(${functionName}(/* complex input */)).toBe(/* expected output */);
+  });
 });
 \`\`\`
 
@@ -58,12 +72,19 @@ CRITICAL:
 - Attempt ${attempt}/3 - Fix any previous syntax errors
 - Return ONLY the test file content
 - NO markdown formatting, NO explanations
-- Make sure all test inputs/outputs match the function's actual behavior`;
+- Make sure all test inputs/outputs match the function's actual behavior
+- Use the provided explanation to create more accurate and comprehensive tests`;
 
   if (modelProvider === "gemini") {
     // Gemini implementation
     const body = JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.3,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 2048,
+      }
     });
 
     const res = await fetch(

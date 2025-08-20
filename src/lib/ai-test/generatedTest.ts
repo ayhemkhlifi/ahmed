@@ -10,7 +10,7 @@ export async function generateTest(
   functionName: string,
   attempt: number,
   modelProvider: string,
-  explanation?: string // NEW: Optional explanation parameter
+  explanation?: string 
 ): Promise<string> {
   const returnTypeMatch = functionCode.match(
     /:\s*(\w+(?:\[\])?|\{[^}]*\}|string|number|boolean|void|any)/,

@@ -12,7 +12,7 @@ export async function syntaxOK(code: string, fnName?: string): Promise<boolean> 
   
   try {
     fs.writeFileSync(tmpPath, code);
-    console.log(`🔍 Checking syntax at: ${tmpPath}`);
+    console.log(` Checking syntax at: ${tmpPath}`);
 
     return new Promise((resolve) => {
       // Use TypeScript compiler to check syntax with proper module resolution

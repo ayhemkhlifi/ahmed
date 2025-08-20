@@ -21,15 +21,15 @@ export async function POST(req: NextRequest) {
     const file = form.get('file') as File | null;
     // Get selected model
     const model = form.get('model') as string | null || 'gemini'; // Default to Gemini
-    // NEW: Get function explanation
+    //  Get function explanation
     const explanation = form.get('explanation') as string | null || '';
     
     if (pastedCode && pastedCode.trim()) {
       code = pastedCode.trim();
-      console.log('📝 Using pasted code');
+      console.log(' Using pasted code');
     } else if (file) {
       code = await file.text();
-      console.log('📁 Using uploaded file:', file.name);
+      console.log(' Using uploaded file:', file.name);
     } else {
       return NextResponse.json({ 
         ok: false, 
@@ -54,13 +54,13 @@ export async function POST(req: NextRequest) {
     }
     
     fnName = functionMatch[1];
-    console.log(`🔍 Found function: ${fnName}`);
-    console.log(`🤖 Selected model: ${model}`);
-    console.log(`📋 Function explanation provided: ${explanation ? 'Yes (' + explanation.length + ' chars)' : 'No'}`);
+    console.log(` Found function: ${fnName}`);
+    console.log(` Selected model: ${model}`);
+    console.log(` Function explanation provided: ${explanation ? 'Yes (' + explanation.length + ' chars)' : 'No'}`);
 
     // Step 1: Write the source file FIRST and keep it during testing
     const sourcePath = await writeSourceFile(code, fnName);
-    console.log(`📄 Source file created: ${sourcePath}`);
+    console.log(` Source file created: ${sourcePath}`);
     
     let finalTestCode = '';
     let result: Awaited<ReturnType<typeof validateTest>> = { success: false, output: '', error: '' };
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     // Step 2: Generate and validate tests (3 attempts)
     for (let attempt = 1; attempt <= 3; attempt++) {
-      console.log(`🔄 Attempt ${attempt}/3 - Generating tests...`);
+      console.log(` Attempt ${attempt}/3 - Generating tests...`);
       
       try {
         // Generate test code that imports the function - pass model and explanation parameters
@@ -78,14 +78,14 @@ export async function POST(req: NextRequest) {
         // Write the test file
         const testPath = await writeTestFile(cleanedTestCode, fnName);
         testFilesCreated.push(testPath);
-        console.log(`📄 Test file created: ${testPath}`);
+        console.log(` Test file created: ${testPath}`);
         
         // Run basic syntax check
         const syntaxValid = await syntaxOK(cleanedTestCode, fnName);
         if (!syntaxValid) {
-          console.log(`⚠️ Syntax check warning for attempt ${attempt} - continuing anyway`);
+          console.log(` Syntax check warning for attempt ${attempt} - continuing anyway`);
         } else {
-          console.log(`✅ Syntax check passed for attempt ${attempt}`);
+          console.log(` Syntax check passed for attempt ${attempt}`);
         }
 
         // Run the tests directly
@@ -94,30 +94,30 @@ export async function POST(req: NextRequest) {
         
         if (result.success) {
           finalTestCode = cleanedTestCode;
-          console.log(`🎉 Tests passed on attempt ${attempt}!`);
+          console.log(` Tests passed on attempt ${attempt}!`);
           break;
         } else {
-          console.log(`❌ Tests failed on attempt ${attempt}`);
+          console.log(` Tests failed on attempt ${attempt}`);
           console.log('Error:', result.error || result.cleanError);
           console.log('Summary:', result.summary);
         }
       } catch (attemptError: any) {
-        console.error(`❌ Attempt ${attempt} encountered error:`, attemptError.message);
+        console.error(` Attempt ${attempt} encountered error:`, attemptError.message);
         continue;
       }
     }
 
-    // Step 3: Generate fix suggestions if all attempts failed - pass model and explanation parameters
+    // Step 3: Generate fix suggestions if all attempts failed 
     let fixSuggestions = undefined;
     if (!result.success) {
-      console.log('🔧 Generating fix suggestions...');
+      console.log(' Generating fix suggestions...');
       try {
         fixSuggestions = await suggestFix(
           code, 
           fnName, 
           result.cleanError || result.error || result.output,
-          model, // Pass model to suggestFix
-          explanation // NEW: Pass explanation to suggestFix
+          model, 
+          explanation 
         );
       } catch (fixError) {
         console.warn('Could not generate fix suggestions:', fixError);
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    console.log('📊 Final Result:', {
+    console.log(' Final Result:', {
       success: result.success,
       hasTestCode: !!finalTestCode,
       hasOutput: !!result.output,
@@ -141,12 +141,12 @@ export async function POST(req: NextRequest) {
       error: result.cleanError || result.error,
       fix: fixSuggestions,
       jestOutput: jestOutput,
-      modelUsed: model, // Return which model was used
-      explanationUsed: !!explanation // NEW: Indicate if explanation was provided
+      modelUsed: model, 
+      explanationUsed: !!explanation 
     });
 
   } catch (error: any) {
-    console.error('❌ API Error:', error);
+    console.error(' API Error:', error);
     
     // Enhanced error messages based on model
     let detailedError = `Server error: ${error.message}`;
